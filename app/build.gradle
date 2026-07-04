@@ -2,12 +2,12 @@ apply plugin: 'com.android.application'
 
 android {
     namespace 'com.dev.spenaircommand'
-    compileSdk 36
+    compileSdk 34
 
     defaultConfig {
         applicationId "com.dev.spenaircommand"
-        minSdk 28          // Android 9 — setLaunchWindowingMode requires API 28
-        targetSdk 36
+        minSdk 28
+        targetSdk 34
         versionCode 1
         versionName "1.0.0"
     }
@@ -26,9 +26,19 @@ android {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
     }
+
+    lint {
+        // We intentionally use reflection to reach hidden APIs (setLaunchWindowingMode,
+        // fromBundle) — these are required for Samsung popup-view support.
+        disable 'BlockedPrivateApi'
+        abortOnError false
+    }
+}
+
+repositories {
+    maven { url 'https://api.xposed.info/' }
 }
 
 dependencies {
-    // Xposed API — compile-only, provided by LSPosed at runtime
     compileOnly 'de.robv.android.xposed:api:82'
 }
