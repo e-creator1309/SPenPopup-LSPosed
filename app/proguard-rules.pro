@@ -1,0 +1,2 @@
+-keep class com.dev.spenaircommand.** { *; }
+-keepattributes *Annotation*

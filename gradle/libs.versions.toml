@@ -1,0 +1,7 @@
+[versions]
+api = "82"
+gradle = "8.2.2"
+
+[libraries]
+api = { module = "de.robv.android.xposed:api", version.ref = "api" }
+gradle = { module = "com.android.tools.build:gradle", version.ref = "gradle" }

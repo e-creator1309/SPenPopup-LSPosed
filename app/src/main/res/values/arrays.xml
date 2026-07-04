@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The target package this module hooks into -->
+    <string-array name="xposedscope">
+        <item>com.samsung.android.service.aircommand</item>
+    </string-array>
+</resources>
