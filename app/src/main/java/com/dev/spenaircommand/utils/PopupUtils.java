@@ -3,47 +3,86 @@ package com.dev.spenaircommand.utils;
 import android.app.ActivityOptions;
 import android.os.Bundle;
 
+import java.lang.reflect.Method;
+
 /**
- * Builds an ActivityOptions bundle that tells the system to open the
- * activity in WINDOWING_MODE_FREEFORM (Samsung Pop-up View).
+ * Builds an ActivityOptions bundle that tells Samsung One UI to open the
+ * activity in WINDOWING_MODE_FREEFORM (Pop-up View = mode 5).
  *
- * Samsung One UI maps WINDOWING_MODE_FREEFORM (5) to its floating
- * "Pop-up View" window — the same mode triggered when the user drags
- * an app icon from the taskbar or uses the three-dot pop-up shortcut.
+ * setLaunchWindowingMode() and fromBundle() are hidden (@SystemApi) APIs,
+ * so we reach them via reflection — the only approach that compiles against
+ * the public SDK stub used in Xposed / LSPosed modules.
  */
 public class PopupUtils {
 
     /** android.app.WindowConfiguration.WINDOWING_MODE_FREEFORM */
-    public static final int WINDOWING_MODE_FREEFORM = 5;
+    private static final int WINDOWING_MODE_FREEFORM = 5;
+
+    /** Cached reflection handles — resolved once and reused */
+    private static Method sSetLaunchWindowingMode;
+    private static Method sFromBundle;
+    private static boolean sInitDone = false;
+
+    private static void init() {
+        if (sInitDone) return;
+        sInitDone = true;
+        try {
+            // ActivityOptions.setLaunchWindowingMode(int) — added in API 28
+            sSetLaunchWindowingMode = ActivityOptions.class
+                    .getDeclaredMethod("setLaunchWindowingMode", int.class);
+            sSetLaunchWindowingMode.setAccessible(true);
+        } catch (Throwable t) {
+            Logger.error(t);
+        }
+        try {
+            // ActivityOptions.fromBundle(Bundle) — hidden factory method
+            sFromBundle = ActivityOptions.class
+                    .getDeclaredMethod("fromBundle", Bundle.class);
+            sFromBundle.setAccessible(true);
+        } catch (Throwable t) {
+            Logger.error(t);
+        }
+    }
 
     /**
-     * Takes an existing ActivityOptions bundle (may be null) and injects
-     * the freeform windowing mode into it, returning the updated bundle.
+     * Takes an existing options bundle (may be null) and injects
+     * WINDOWING_MODE_FREEFORM so the activity opens as a popup window.
      */
-    public static Bundle injectPopupMode(Bundle existingOpts) {
+    public static Bundle injectPopupMode(Bundle existing) {
+        init();
+
         try {
-            ActivityOptions opts;
-            if (existingOpts != null) {
-                opts = ActivityOptions.fromBundle(existingOpts);
-            } else {
+            ActivityOptions opts = null;
+
+            // Try to restore existing options so we don't lose display-id etc.
+            if (existing != null && sFromBundle != null) {
+                try {
+                    opts = (ActivityOptions) sFromBundle.invoke(null, existing);
+                } catch (Throwable ignored) { }
+            }
+            if (opts == null) {
                 opts = ActivityOptions.makeBasic();
             }
 
-            // Standard API 28+ — sets the windowing mode for the launched activity
-            opts.setLaunchWindowingMode(WINDOWING_MODE_FREEFORM);
+            // Inject freeform windowing mode via reflection
+            if (sSetLaunchWindowingMode != null) {
+                sSetLaunchWindowingMode.invoke(opts, WINDOWING_MODE_FREEFORM);
+                Logger.log("setLaunchWindowingMode(5) injected via reflection");
+            }
 
             Bundle result = opts.toBundle();
 
-            // Samsung-specific extra recognised by One UI's window manager
+            // Samsung One UI extra keys for popup window
             result.putInt("android.activity.windowingMode", WINDOWING_MODE_FREEFORM);
-            // Samsung SemActivityOptions compat key
             result.putBoolean("sem.activity.popupWindow", true);
 
             return result;
+
         } catch (Throwable t) {
             Logger.error(t);
-            // Return a minimal bundle that at least tries the Samsung key
-            Bundle fallback = new Bundle();
+
+            // Minimal fallback — at least try the Samsung extras
+            Bundle fallback = (existing != null) ? existing : new Bundle();
             fallback.putInt("android.activity.windowingMode", WINDOWING_MODE_FREEFORM);
             fallback.putBoolean("sem.activity.popupWindow", true);
             return fallback;
