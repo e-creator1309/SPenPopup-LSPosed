@@ -200,3 +200,57 @@ Fix: `BleSpenEnableHook.java` in this repo hooks all three gates to always retur
 | APK shows as 5.6K | Cloudflare challenge page, not real APK | Check `file apk_name.apk` — must say "Java archive data" |
 | `/nix/store` find times out | Nix store has thousands of paths | Use `ls ~/.nix-profile/bin/java` instead of `find /nix` |
 
+
+---
+
+## ⚠️ Crash Postmortem — AirCommandUiService NPE (FATAL EXCEPTION)
+
+### The crash
+
+```
+java.lang.RuntimeException: Unable to create service AirCommandUiService
+Caused by: java.lang.NullPointerException:
+  Attempt to invoke virtual method 'void V2.i.k(android.content.Context)'
+  on a null object reference  at H2.l.h(Unknown Source:107)
+```
+
+### Root cause
+
+First version of `BleSpenEnableHook` had this loop in `hookGate1_SubChecks`:
+
+```java
+// WRONG — too aggressive
+for (Method m : cls.getDeclaredMethods()) {
+    if (m.getReturnType() == boolean.class && m.getParameterTypes().length == 0) {
+        XposedBridge.hookMethod(m, XC_MethodReplacement → return true);
+    }
+}
+```
+
+`r8.c` has these no-arg boolean methods (from jadx):
+
+| Method | What it really is | Safe to hook → true? |
+|---|---|---|
+| `j()` | `SemFloatingFeature.getBoolean(BLE_SPEN_SUPPORT)` | ✅ Yes |
+| `m()` | `SemFloatingFeature.getBoolean(SPEN_ALERT_SUPPORT)` | ❌ **NO** |
+
+The loop hooked **both** `j()` and `m()`. When `m()` returned `true`, `AirCommandUiService.onCreate` followed the **SPen Alert initialization path** — which tries to call `V2.i.k(Context)` but `V2.i` singleton hasn't been created yet → NPE → service crash → aircommand dead.
+
+### Fix
+
+Remove the broad loop entirely. Hook **only** `r8.c.a(Context)` at the top level:
+
+```java
+// r8.c source (verified from jadx):
+public static boolean a(Context context) {
+    return j() || k(context);  // a() covers BOTH sub-checks
+}
+```
+
+Since we hook `a(Context)` → `true` directly, we never need `j()` or any other sub-method.
+
+### Lesson
+
+**Never iterate and hook all methods of a given signature in a class you haven't fully mapped.**
+Even methods with the same return type and signature can have completely different side effects.
+Always decompile first, read every method, then hook only the exact method you need.
